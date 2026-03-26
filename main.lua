@@ -33,13 +33,8 @@ local SETTINGS = {
     CurrentSpeed = 5,
     IsFarming = false,
     IsAura = false,
-    BreakDistance = 8,
-    CacheTime = 0.5 -- Кэширование целей
+    BreakDistance = 8
 }
-
---// Cache
-local targetCache = {}
-local lastCacheUpdate = 0
 
 --// Create Window
 local Window = Rayfield:CreateWindow({
@@ -67,7 +62,6 @@ FarmTab:CreateToggle({
     Flag = "WaterPot",
     Callback = function(Value)
         SETTINGS.TargetTypes.WaterPot.Enabled = Value
-        clearCache()
     end
 })
 
@@ -77,7 +71,6 @@ FarmTab:CreateToggle({
     Flag = "GoldPot",
     Callback = function(Value)
         SETTINGS.TargetTypes.GoldPot.Enabled = Value
-        clearCache()
     end
 })
 
@@ -89,7 +82,6 @@ FarmTab:CreateToggle({
     Flag = "Small",
     Callback = function(Value)
         SETTINGS.SizeFilters.Small = Value
-        clearCache()
     end
 })
 
@@ -99,7 +91,6 @@ FarmTab:CreateToggle({
     Flag = "Big",
     Callback = function(Value)
         SETTINGS.SizeFilters.Big = Value
-        clearCache()
     end
 })
 
@@ -109,7 +100,6 @@ FarmTab:CreateToggle({
     Flag = "Mega",
     Callback = function(Value)
         SETTINGS.SizeFilters.Mega = Value
-        clearCache()
     end
 })
 
@@ -119,7 +109,6 @@ FarmTab:CreateToggle({
     Flag = "Omega",
     Callback = function(Value)
         SETTINGS.SizeFilters.Omega = Value
-        clearCache()
     end
 })
 
@@ -176,11 +165,6 @@ local function getDeployablesFolder()
     return nil
 end
 
-local function clearCache()
-    targetCache = {}
-    lastCacheUpdate = 0
-end
-
 local function isValidTarget(obj)
     if not obj or not obj:IsA("BasePart") then return false end
     
@@ -221,38 +205,29 @@ local function isValidTarget(obj)
     return false
 end
 
-local function updateTargetCache()
-    local now = tick()
-    if now - lastCacheUpdate < SETTINGS.CacheTime then
-        return targetCache
-    end
-    
+local function getAllTargets()
     local deployables = getDeployablesFolder()
-    if not deployables then
-        targetCache = {}
-        return targetCache
-    end
+    if not deployables then return {} end
     
-    targetCache = {}
+    local targets = {}
     for _, obj in ipairs(deployables:GetDescendants()) do
         if isValidTarget(obj) then
-            table.insert(targetCache, obj)
+            table.insert(targets, obj)
         end
     end
     
-    lastCacheUpdate = now
-    return targetCache
+    return targets
 end
 
 local function findNearestTarget()
-    local cache = updateTargetCache()
-    if #cache == 0 then return nil end
+    local targets = getAllTargets()
+    if #targets == 0 then return nil end
     
     local nearest = nil
     local nearestDist = math.huge
     local hrpPos = humanoidRootPart.Position
     
-    for _, obj in ipairs(cache) do
+    for _, obj in ipairs(targets) do
         if obj and obj.Parent then
             local dist = (hrpPos - obj.Position).Magnitude
             if dist < nearestDist and dist > 3 then
@@ -265,44 +240,41 @@ local function findNearestTarget()
     return nearest, nearestDist
 end
 
-local function findTargetsInRadius(radius)
-    local cache = updateTargetCache()
-    local result = {}
-    local hrpPos = humanoidRootPart.Position
-    
-    for _, obj in ipairs(cache) do
-        if obj and obj.Parent then
-            local dist = (hrpPos - obj.Position).Magnitude
-            if dist <= radius then
-                table.insert(result, obj)
-            end
-        end
-    end
-    
-    return result
-end
-
+--// BREAK FUNCTION (РАБОЧАЯ!)
 local function breakPot(pot)
     if not pot or not pot.Parent then return end
     
+    -- Сохраняем позицию
+    local oldCFrame = humanoidRootPart.CFrame
+    
+    -- ТЕЛЕПОРТ НА ПОТ (для ауры - это нормально)
+    humanoidRootPart.CFrame = CFrame.new(pot.Position + Vector3.new(0, 2, 0))
+    
+    -- Fire touch
     pcall(function()
         firetouchinterest(pot, humanoidRootPart, 0)
-        task.wait()
+        task.wait(0.05)
         firetouchinterest(pot, humanoidRootPart, 1)
     end)
     
+    -- Click detector
     pcall(function()
         local click = pot:FindFirstChildOfClass("ClickDetector")
         if click then fireclickdetector(click) end
     end)
     
+    -- Proximity prompt
     pcall(function()
         local prompt = pot:FindFirstChildOfClass("ProximityPrompt")
         if prompt then fireproximityprompt(prompt) end
     end)
+    
+    -- Возврат (опционально, для ауры можно не возвращать)
+    -- task.wait(0.05)
+    -- humanoidRootPart.CFrame = oldCFrame
 end
 
---// TWEEN (НЕ ТЕЛЕПОРТ!)
+--// TWEEN (для фарма)
 local currentTween = nil
 
 local function flyToTarget(target)
@@ -332,37 +304,24 @@ local function flyToTarget(target)
     })
     
     currentTween:Play()
+    currentTween.Completed:Wait()
     
-    -- Ломание при приближении
-    local startTime = tick()
-    while currentTween and (currentTween.PlaybackState == Enum.PlaybackState.Playing) do
-        if tick() - startTime > tweenTime + 1 then break end
-        
-        if target and target.Parent then
-            local dist = (humanoidRootPart.Position - target.Position).Magnitude
-            if dist < SETTINGS.BreakDistance then
-                breakPot(target)
-            end
-        end
-        
-        task.wait(0.1)
-    end
-    
+    -- Ломание после прилета
     breakPot(target)
 end
 
 --// LOOPS
-local farmLoop = nil
-local auraLoop = nil
+local farmRunning = false
+local auraRunning = false
 
 local function startFarm()
-    if farmLoop then return end
-    
+    if farmRunning then return end
+    farmRunning = true
     SETTINGS.IsFarming = true
     FarmStatus:Set("Status: RUNNING")
     
-    farmLoop = task.spawn(function()
-        while SETTINGS.IsFarming do
+    task.spawn(function()
+        while farmRunning do
             local target, dist = findNearestTarget()
             
             if target then
@@ -370,53 +329,70 @@ local function startFarm()
                 flyToTarget(target)
             else
                 FarmStatus:Set("No targets found")
-                task.wait(0.5)
             end
             
-            task.wait(0.2)
+            task.wait(0.3)
         end
+        
+        FarmStatus:Set("Status: STOPPED")
+        SETTINGS.IsFarming = false
     end)
 end
 
 local function stopFarm()
-    SETTINGS.IsFarming = false
-    FarmStatus:Set("Status: STOPPED")
+    farmRunning = false
     if currentTween then
         currentTween:Cancel()
-        currentTween = nil
     end
-    farmLoop = nil
 end
 
 local function startAura()
-    if auraLoop then return end
-    
+    if auraRunning then return end
+    auraRunning = true
     SETTINGS.IsAura = true
     
-    auraLoop = task.spawn(function()
-        while SETTINGS.IsAura do
-            local targets = findTargetsInRadius(SETTINGS.BreakDistance)
+    task.spawn(function()
+        while auraRunning do
+            local targets = getAllTargets()
+            local hrpPos = humanoidRootPart.Position
+            local nearby = {}
             
-            AuraStatus:Set("Breaking " .. #targets .. " pots")
-            
-            for _, target in ipairs(targets) do
-                if target and target.Parent then
-                    breakPot(target)
+            -- Находим ближайшие
+            for _, pot in ipairs(targets) do
+                if pot and pot.Parent then
+                    local dist = (hrpPos - pot.Position).Magnitude
+                    if dist <= SETTINGS.BreakDistance then
+                        table.insert(nearby, pot)
+                    end
                 end
             end
             
-            task.wait(0.2) -- Задержка чтобы не лагало
+            -- БЬЕМ КАЖДЫЙ!
+            if #nearby > 0 then
+                AuraStatus:Set("Breaking " .. #nearby .. " pots...")
+                for _, pot in ipairs(nearby) do
+                    if pot and pot.Parent then
+                        breakPot(pot)
+                        task.wait(0.1) -- Маленькая задержка между ударами
+                    end
+                end
+            else
+                AuraStatus:Set("No pots nearby")
+            end
+            
+            task.wait(0.5) -- Проверка раз в 0.5 сек
         end
+        
+        AuraStatus:Set("Aura: OFF")
+        SETTINGS.IsAura = false
     end)
 end
 
 local function stopAura()
-    SETTINGS.IsAura = false
-    AuraStatus:Set("Aura: OFF")
-    auraLoop = nil
+    auraRunning = false
 end
 
---// BUTTONS (Простые, без пересоздания)
+--// BUTTONS
 FarmTab:CreateButton({
     Name = "Toggle Farm",
     Callback = function()
@@ -459,6 +435,6 @@ end)
 --// Notify
 Rayfield:Notify({
     Title = "Loaded",
-    Content = "All OFF by default. Enable types and sizes first!",
+    Content = "Aura now PHYSICALLY touches pots!",
     Duration = 3
 })

@@ -12,7 +12,7 @@ local character = player.Character or player.CharacterAdded:Wait()
 local humanoidRootPart = character:WaitForChild("HumanoidRootPart")
 local humanoid = character:WaitForChild("Humanoid")
 
---// ТОЧНЫЕ НАЗВАНИЯ ИЗ workspace.Deployables
+--// ТОЧНЫЕ НАЗВАНИЯ
 local POT_NAMES = {
     "Gold Pot",
     "Golden Gold Pot", 
@@ -25,12 +25,8 @@ local POT_NAMES = {
 
 --// Config
 local SETTINGS = {
-    -- Farm targets (точные названия)
     FarmTargets = {},
-    
-    -- Aura targets (отдельные!)
     AuraTargets = {},
-    
     Speed = 5,
     IsFarming = false,
     IsAura = false,
@@ -50,24 +46,19 @@ local FarmTab = Window:CreateTab("🎯 Farm", "target")
 local AuraTab = Window:CreateTab("⚡ Aura", "zap")
 
 --// FARM TAB
-FarmTab:CreateSection("Farm Targets (выбери что лететь)")
+FarmTab:CreateSection("Farm Targets")
 
--- Создаем тогглы для каждого пота
 for _, name in ipairs(POT_NAMES) do
     SETTINGS.FarmTargets[name] = false
     FarmTab:CreateToggle({
         Name = name,
         CurrentValue = false,
-        Callback = function(V) 
-            SETTINGS.FarmTargets[name] = V 
-        end
+        Callback = function(V) SETTINGS.FarmTargets[name] = V end
     })
 end
 
-FarmTab:CreateSection("Speed (0-22)")
-
 FarmTab:CreateSlider({
-    Name = "Speed",
+    Name = "Speed (0-22)",
     Range = {0, 22},
     Increment = 1,
     CurrentValue = 5,
@@ -77,21 +68,16 @@ FarmTab:CreateSlider({
 local FarmStatus = FarmTab:CreateLabel("Status: IDLE")
 
 --// AURA TAB
-AuraTab:CreateSection("⚡ Aura Targets (выбери что ломать)")
+AuraTab:CreateSection("⚡ Aura Targets")
 
--- Создаем тогглы для ауры (отдельные!)
 for _, name in ipairs(POT_NAMES) do
     SETTINGS.AuraTargets[name] = false
     AuraTab:CreateToggle({
         Name = name,
         CurrentValue = false,
-        Callback = function(V) 
-            SETTINGS.AuraTargets[name] = V 
-        end
+        Callback = function(V) SETTINGS.AuraTargets[name] = V end
     })
 end
-
-AuraTab:CreateSection("Settings")
 
 AuraTab:CreateSlider({
     Name = "Break Distance",
@@ -108,8 +94,15 @@ local AuraStatus = AuraTab:CreateLabel("Aura: OFF")
 
 local function getDeployables()
     local ws = game:GetService("Workspace")
-    if ws:FindFirstChild("Deployables") then return ws.Deployables end
-    if ws:FindFirstChild("deployables") then return ws.deployables end
+    return ws:FindFirstChild("Deployables") or ws:FindFirstChild("deployables")
+end
+
+local function getPartFromObj(obj)
+    if not obj then return nil end
+    if obj:IsA("BasePart") then return obj end
+    if obj:IsA("Model") then
+        return obj.PrimaryPart or obj:FindFirstChildWhichIsA("BasePart")
+    end
     return nil
 end
 
@@ -123,47 +116,67 @@ local function getEnabledTargets(targetTable)
     if not deployables then return {} end
     
     local targets = {}
-    for _, obj in ipairs(deployables:GetChildren()) do -- Только прямые дети, не глубокий поиск
-        if obj:IsA("BasePart") or obj:IsA("Model") then
-            if isTargetEnabled(obj, targetTable) then
-                -- Если модель, берем PrimaryPart или первый BasePart
-                if obj:IsA("Model") then
-                    local part = obj.PrimaryPart or obj:FindFirstChildWhichIsA("BasePart")
-                    if part then table.insert(targets, part) end
-                else
-                    table.insert(targets, obj)
-                end
-            end
+    for _, obj in ipairs(deployables:GetChildren()) do
+        if isTargetEnabled(obj, targetTable) then
+            local part = getPartFromObj(obj)
+            if part then table.insert(targets, part) end
         end
     end
     return targets
 end
 
+--// РАБОЧЕЕ ЛОМАНИЕ (с касанием)
 local function breakPot(pot)
-    if not pot or not pot.Parent then return end
+    if not pot or not pot.Parent then return false end
     
-    -- Телепорт на пот
-    humanoidRootPart.CFrame = CFrame.new(pot.Position + Vector3.new(0, 3, 0))
+    local success = false
     
-    -- Касание
+    -- Способ 1: Телепорт ВНУТРЬ пота и касание
     pcall(function()
+        -- Запоминаем старую позицию
+        local oldCFrame = humanoidRootPart.CFrame
+        
+        -- Телепорт прямо в центр пота
+        humanoidRootPart.CFrame = CFrame.new(pot.Position)
+        
+        -- Ждем один кадр чтобы физика обновилась
+        task.wait(0.05)
+        
+        -- Fire touch (0 = начать касание)
         firetouchinterest(pot, humanoidRootPart, 0)
-        task.wait(0.03)
+        task.wait(0.1)
+        -- Fire touch (1 = закончить касание)
         firetouchinterest(pot, humanoidRootPart, 1)
+        
+        success = true
+        
+        -- Возврат на место (опционально)
+        -- task.wait(0.05)
+        -- humanoidRootPart.CFrame = oldCFrame
     end)
     
-    -- Клик/промпт
+    -- Способ 2: ClickDetector
     pcall(function()
-        local click = pot:FindFirstChildOfClass("ClickDetector")
-        if click then fireclickdetector(click) end
+        local click = pot.Parent:FindFirstChildOfClass("ClickDetector") or pot:FindFirstChildOfClass("ClickDetector")
+        if click then 
+            fireclickdetector(click)
+            success = true
+        end
     end)
+    
+    -- Способ 3: ProximityPrompt
     pcall(function()
-        local prompt = pot:FindFirstChildOfClass("ProximityPrompt")
-        if prompt then fireproximityprompt(prompt) end
+        local prompt = pot.Parent:FindFirstChildOfClass("ProximityPrompt") or pot:FindFirstChildOfClass("ProximityPrompt")
+        if prompt then 
+            fireproximityprompt(prompt)
+            success = true
+        end
     end)
+    
+    return success
 end
 
---// TWEEN
+--// TWEEN (для фарма)
 local currentTween = nil
 
 local function flyTo(target)
@@ -183,7 +196,11 @@ local function flyTo(target)
     currentTween:Play()
     currentTween.Completed:Wait()
     
-    breakPot(target)
+    -- Бьем несколько раз
+    for i = 1, 3 do
+        breakPot(target)
+        task.wait(0.1)
+    end
 end
 
 --// LOOPS
@@ -214,7 +231,7 @@ local function startFarm()
             end
             
             if nearest then
-                FarmStatus:Set("To: " .. nearest.Parent and nearest.Parent.Name or nearest.Name)
+                FarmStatus:Set("To: " .. nearest.Parent.Name)
                 flyTo(nearest)
             else
                 FarmStatus:Set("No targets")
@@ -232,6 +249,7 @@ local function stopFarm()
     if currentTween then currentTween:Cancel() end
 end
 
+--// AURA (рабочая!)
 local function startAura()
     if auraRun then return end
     auraRun = true
@@ -243,6 +261,7 @@ local function startAura()
             local pos = humanoidRootPart.Position
             local toBreak = {}
             
+            -- Собираем ближайшие
             for _, pot in ipairs(targets) do
                 if pot and pot.Parent then
                     local d = (pos - pot.Position).Magnitude
@@ -253,21 +272,31 @@ local function startAura()
             end
             
             if #toBreak > 0 then
-                AuraStatus:Set("Breaking " .. #toBreak .. "...")
+                AuraStatus:Set("Found " .. #toBreak .. " pots")
                 
+                -- Бьем каждый по очереди
                 for i, pot in ipairs(toBreak) do
                     if not auraRun then break end
-                    if pot and pot.Parent then
-                        breakPot(pot)
-                        AuraStatus:Set("Broke " .. i .. "/" .. #toBreak)
-                        task.wait(0.15)
+                    
+                    AuraStatus:Set("Breaking " .. pot.Parent.Name .. " (" .. i .. "/" .. #toBreak .. ")")
+                    
+                    -- Телепорт и удар
+                    local broken = breakPot(pot)
+                    
+                    if broken then
+                        AuraStatus:Set("✓ Broke " .. pot.Parent.Name)
+                    else
+                        AuraStatus:Set("✗ Failed " .. pot.Parent.Name)
                     end
+                    
+                    -- Задержка между ударами
+                    task.wait(0.2)
                 end
             else
-                AuraStatus:Set("No pots nearby")
+                AuraStatus:Set("No pots in range")
             end
             
-            task.wait(0.5)
+            task.wait(0.3)
         end
         AuraStatus:Set("Aura: OFF")
         SETTINGS.IsAura = false
@@ -309,4 +338,4 @@ player.CharacterAdded:Connect(function(c)
     end)
 end)
 
-Rayfield:Notify({Title = "Loaded", Content = "Exact names from Deployables!", Duration = 3})
+Rayfield:Notify({Title = "Loaded", Content = "Aura now really breaks pots!", Duration = 3})

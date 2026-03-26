@@ -1,454 +1,325 @@
-print("-----------------------------------------")
+--// Загрузка Rayfield UI
+local Rayfield = loadstring(game:HttpGet('https://raw.githubusercontent.com/SiriusSoftwareLtd/Rayfield/main/source.lua'))()
 
-local Library = loadstring(game:HttpGetAsync("https://github.com/1dontgiveaf/Fluent-Renewed/releases/download/v1.0/Fluent.luau"))()
-local SaveManager = loadstring(game:HttpGetAsync("https://raw.githubusercontent.com/1dontgiveaf/Fluent-Renewed/refs/heads/main/Addons/SaveManager.luau"))()
-local InterfaceManager = loadstring(game:HttpGetAsync("https://raw.githubusercontent.com/1dontgiveaf/Fluent-Renewed/refs/heads/main/Addons/InterfaceManager.luau"))()
-
+--// Services
 local Players = game:GetService("Players")
-local RunService = game:GetService("RunService")
 local TweenService = game:GetService("TweenService")
-local Workspace = game:GetService("Workspace")
-local VirtualInputManager = game:GetService("VirtualInputManager")
+local RunService = game:GetService("RunService")
 
+--// Player Setup
 local player = Players.LocalPlayer
 local character = player.Character or player.CharacterAdded:Wait()
-local humanoid = character:WaitForChild("Humanoid")
-local rootPart = character:WaitForChild("HumanoidRootPart")
+local humanoidRootPart = character:WaitForChild("HumanoidRootPart")
 
---// Все вариации котлов
-local potNames = {
-    Gold = {
-        "Gold Pot",
-        "Big Gold Pot", 
-        "Mega Gold Pot",
-        "Omega Gold Pot",
-        "Giant Gold Pot",
-        "Super Gold Pot"
+--// Config
+local SETTINGS = {
+    TargetTypes = {
+        WaterPot = {
+            Names = {"WaterPot", "Water Pot", "waterpot", "water_pot"},
+            Enabled = true
+        },
+        GoldPot = {
+            Names = {"GoldPot", "Gold Pot", "goldpot", "gold_pot", "GoldenPot", "Golden Pot", "goldenpot", "GoldenGoldPot", "Golden Gold Pot", "goldengoldpot"},
+            Enabled = true
+        }
     },
-    Golden = {
-        "Golden Gold Pot",
-        "Big Golden Gold Pot",
-        "Mega Golden Gold Pot", 
-        "Omega Golden Gold Pot",
-        "Giant Golden Gold Pot",
-        "Super Golden Gold Pot"
-    }
+    SizeFilters = {
+        Small = true,
+        Big = true,
+        Mega = true,
+        Omega = true
+    },
+    CurrentSpeed = 5,
+    IsRunning = false,
+    CurrentTween = nil,
+    Connection = nil
 }
 
---// Settings
-local settings = {
-    selectedType = "Gold",
-    selectedSize = "All",
-    tweenSpeed = 50,
-    maxFarmTime = 10,
-    autoFarm = false,
-    autoHit = false,
-    clickDelay = 0.01,
-    hitDistance = 15,
-    notifyFound = true
-}
+--// Create Window
+local Window = Rayfield:CreateWindow({
+    Name = "Pot Farmer",
+    LoadingTitle = "Pot Farmer Loading",
+    LoadingSubtitle = "by Sirius",
+    ConfigurationSaving = {
+        Enabled = true,
+        FolderName = "PotFarmer",
+        FileName = "Settings"
+    },
+    Discord = {
+        Enabled = false,
+        Invite = "",
+        RememberJoins = true
+    },
+    KeySystem = false
+})
 
-local currentTarget = nil
-local lastTarget = nil
-local currentTween = nil
-local farmStartTime = 0
+--// Tabs
+local MainTab = Window:CreateTab("Main", "target")
+local SettingsTab = Window:CreateTab("Settings", "settings")
 
---// Получение списка имен для поиска
-local function getTargetNames()
-    local names = {}
-    local baseNames = settings.selectedType == "Gold" and potNames.Gold or potNames.Golden
-    
-    if settings.selectedSize == "All" then
-        return baseNames
-    else
-        for _, name in ipairs(baseNames) do
-            if settings.selectedSize == "Normal" and name == baseNames[1] then
-                table.insert(names, name)
-            elseif settings.selectedSize == "Big" and name:find("Big") then
-                table.insert(names, name)
-            elseif settings.selectedSize == "Mega" and name:find("Mega") then
-                table.insert(names, name)
-            elseif settings.selectedSize == "Omega" and name:find("Omega") then
-                table.insert(names, name)
-            end
+--// Main Tab - Toggles for Pot Types
+MainTab:CreateSection("Target Selection")
+
+MainTab:CreateToggle({
+    Name = "💧 Water Pot",
+    CurrentValue = true,
+    Flag = "WaterPotToggle",
+    Callback = function(Value)
+        SETTINGS.TargetTypes.WaterPot.Enabled = Value
+    end
+})
+
+MainTab:CreateToggle({
+    Name = "🏆 Gold Pot (Golden + GoldenGold)",
+    CurrentValue = true,
+    Flag = "GoldPotToggle",
+    Callback = function(Value)
+        SETTINGS.TargetTypes.GoldPot.Enabled = Value
+    end
+})
+
+--// Size Filters Section
+MainTab:CreateSection("Size Filter")
+
+MainTab:CreateToggle({
+    Name = "Small",
+    CurrentValue = true,
+    Flag = "SmallToggle",
+    Callback = function(Value)
+        SETTINGS.SizeFilters.Small = Value
+    end
+})
+
+MainTab:CreateToggle({
+    Name = "Big",
+    CurrentValue = true,
+    Flag = "BigToggle",
+    Callback = function(Value)
+        SETTINGS.SizeFilters.Big = Value
+    end
+})
+
+MainTab:CreateToggle({
+    Name = "Mega",
+    CurrentValue = true,
+    Flag = "MegaToggle",
+    Callback = function(Value)
+        SETTINGS.SizeFilters.Mega = Value
+    end
+})
+
+MainTab:CreateToggle({
+    Name = "Omega",
+    CurrentValue = true,
+    Flag = "OmegaToggle",
+    Callback = function(Value)
+        SETTINGS.SizeFilters.Omega = Value
+    end
+})
+
+--// Speed Slider
+MainTab:CreateSection("Tween Speed")
+
+MainTab:CreateSlider({
+    Name = "Speed (0-22)",
+    Range = {0, 22},
+    Increment = 1,
+    Suffix = "speed",
+    CurrentValue = 5,
+    Flag = "SpeedSlider",
+    Callback = function(Value)
+        SETTINGS.CurrentSpeed = Value
+    end
+})
+
+--// Main Toggle Button
+MainTab:CreateSection("Control")
+
+local FarmButton = MainTab:CreateButton({
+    Name = "▶ START FARMING",
+    Callback = function()
+        SETTINGS.IsRunning = not SETTINGS.IsRunning
+        
+        if SETTINGS.IsRunning then
+            FarmButton:Set("⏹ STOP FARMING")
+            startFarming()
+        else
+            FarmButton:Set("▶ START FARMING")
+            stopFarming()
         end
     end
-    return names
+})
+
+--// Settings Tab
+SettingsTab:CreateSection("Info")
+
+SettingsTab:CreateParagraph({
+    Title = "How to use",
+    Content = "1. Select target pot types\n2. Choose sizes to farm\n3. Set tween speed (0=instant, 22=fast)\n4. Click START FARMING\n\nScript will find nearest valid pot and tween to it automatically."
+})
+
+--// Core Functions
+local function getDeployablesFolder()
+    local workspace = game:GetService("Workspace")
+    local paths = {
+        workspace:FindFirstChild("Deployables"),
+        workspace:FindFirstChild("deployables"),
+        workspace:FindFirstChild("Workspace") and workspace:FindFirstChild("Workspace"):FindFirstChild("Deployables"),
+        workspace:FindFirstChild("Game") and workspace:FindFirstChild("Game"):FindFirstChild("Deployables"),
+        workspace:FindFirstChild("Map") and workspace:FindFirstChild("Map"):FindFirstChild("Deployables")
+    }
+    
+    for _, folder in ipairs(paths) do
+        if folder then return folder end
+    end
+    
+    -- Deep search
+    for _, child in ipairs(workspace:GetDescendants()) do
+        if child:IsA("Folder") and (child.Name:lower():match("deploy") or child.Name:lower():match("pot")) then
+            return child
+        end
+    end
+    
+    return nil
 end
 
---// Поиск ближайшего котла
-local function findNearestPot()
-    local targets = getTargetNames()
-    local nearest = nil
-    local minDist = math.huge
+local function isValidTarget(obj)
+    if not obj or not obj:IsA("BasePart") then return false end
     
-    for _, obj in ipairs(Workspace:GetDescendants()) do
-        if obj:IsA("Model") and obj.Parent then
-            for _, name in ipairs(targets) do
-                if obj.Name == name then
-                    local part = obj:FindFirstChildWhichIsA("BasePart")
-                    if part and part:IsDescendantOf(Workspace) then
-                        local dist = (rootPart.Position - part.Position).Magnitude
-                        if dist < minDist then
-                            minDist = dist
-                            nearest = obj
-                        end
+    local objName = obj.Name:lower()
+    local objParentName = obj.Parent and obj.Parent.Name:lower() or ""
+    
+    -- Check Water Pot
+    if SETTINGS.TargetTypes.WaterPot.Enabled then
+        for _, name in ipairs(SETTINGS.TargetTypes.WaterPot.Names) do
+            if objName:find(name:lower()) or objParentName:find(name:lower()) then
+                for sizeName, active in pairs(SETTINGS.SizeFilters) do
+                    if active and (objName:find(sizeName:lower()) or objParentName:find(sizeName:lower())) then
+                        return true, "WaterPot", sizeName
                     end
                 end
             end
         end
     end
-    return nearest, minDist
-end
-
---// Tween движение к цели
-local function tweenToTarget(target)
-    if not target then return false end
     
-    local targetPart = target:FindFirstChildWhichIsA("BasePart")
-    if not targetPart then return false end
-    
-    -- Останавливаем предыдущий tween
-    if currentTween then
-        currentTween:Cancel()
-        currentTween = nil
+    -- Check Gold Pot (includes Golden and GoldenGoldPot)
+    if SETTINGS.TargetTypes.GoldPot.Enabled then
+        for _, name in ipairs(SETTINGS.TargetTypes.GoldPot.Names) do
+            if objName:find(name:lower()) or objParentName:find(name:lower()) then
+                for sizeName, active in pairs(SETTINGS.SizeFilters) do
+                    if active and (objName:find(sizeName:lower()) or objParentName:find(sizeName:lower())) then
+                        return true, "GoldPot", sizeName
+                    end
+                end
+            end
+        end
     end
     
-    local distance = (rootPart.Position - targetPart.Position).Magnitude
-    local duration = distance / settings.tweenSpeed
-    duration = math.min(duration, 10)
+    return false
+end
+
+local function findNearestTarget()
+    local deployables = getDeployablesFolder()
+    if not deployables then 
+        Rayfield:Notify({
+            Title = "Error",
+            Content = "Deployables folder not found!",
+            Duration = 3
+        })
+        return nil 
+    end
+    
+    local nearest = nil
+    local nearestDist = math.huge
+    
+    for _, obj in ipairs(deployables:GetDescendants()) do
+        local valid, potType, sizeType = isValidTarget(obj)
+        if valid and obj:IsA("BasePart") then
+            local dist = (humanoidRootPart.Position - obj.Position).Magnitude
+            if dist < nearestDist and dist > 5 then
+                nearestDist = dist
+                nearest = obj
+            end
+        end
+    end
+    
+    return nearest
+end
+
+local function tweenToTarget(target)
+    if not target or not target.Parent then return end
+    
+    local distance = (humanoidRootPart.Position - target.Position).Magnitude
+    local speed = math.max(0.1, SETTINGS.CurrentSpeed)
+    local tweenTime = distance / (speed * 10)
+    
+    if SETTINGS.CurrentSpeed == 0 then
+        tweenTime = 0.05
+    end
     
     local tweenInfo = TweenInfo.new(
-        duration,
-        Enum.EasingStyle.Linear,
+        tweenTime,
+        Enum.EasingStyle.Quad,
         Enum.EasingDirection.Out
     )
     
-    -- Целевая позиция (рядом с котлом, не внутри)
-    local targetPos = targetPart.Position + Vector3.new(0, 0, 6)
-    local goal = {CFrame = CFrame.new(targetPos)}
-    currentTween = TweenService:Create(rootPart, tweenInfo, goal)
+    local targetCFrame = CFrame.new(target.Position + Vector3.new(0, 5, 0))
     
-    currentTween:Play()
+    SETTINGS.CurrentTween = TweenService:Create(humanoidRootPart, tweenInfo, {
+        CFrame = targetCFrame
+    })
     
-    -- Ждем завершения или отмены
-    local completed = false
-    currentTween.Completed:Connect(function() completed = true end)
-    
-    while not completed and settings.autoFarm and currentTarget == target do
-        task.wait(0.1)
-        if tick() - farmStartTime > settings.maxFarmTime then
-            if currentTween then currentTween:Cancel() end
-            return false
-        end
-    end
-    
-    return completed
+    SETTINGS.CurrentTween:Play()
+    SETTINGS.CurrentTween.Completed:Wait()
 end
 
---// Создание окна (как в твоем примере)
-local Window = Library:CreateWindow{
-    Title = "Pot Farmer Pro",
-    SubTitle = "by Sirius Style",
-    TabWidth = 160,
-    Size = UDim2.fromOffset(830, 525),
-    Resize = true,
-    MinSize = Vector2.new(470, 380),
-    Acrylic = true,
-    Theme = "Dark",
-    MinimizeKey = Enum.KeyCode.LeftControl
-}
-
-local Tabs = {
-    Main = Window:AddTab({ Title = "Main", Icon = "menu" }),
-    Farming = Window:AddTab({ Title = "Farming", Icon = "sprout" }),
-    Combat = Window:AddTab({ Title = "Combat", Icon = "axe" }),
-    Settings = Window:AddTab({ Title = "Settings", Icon = "settings" })
-}
-
---// MAIN TAB
-Tabs.Main:AddParagraph({
-    Title = "Pot Selection",
-    Content = "Choose type and size of pots to farm"
-})
-
-Tabs.Main:AddDropdown("PotType", {
-    Title = "Pot Type",
-    Values = {"Gold", "Golden"},
-    Multi = false,
-    Default = "Gold",
-    Callback = function(Value)
-        settings.selectedType = Value
-    end
-})
-
-Tabs.Main:AddDropdown("PotSize", {
-    Title = "Size Filter",
-    Description = "Select specific size or all",
-    Values = {"All", "Normal", "Big", "Mega", "Omega"},
-    Multi = false,
-    Default = "All",
-    Callback = function(Value)
-        settings.selectedSize = Value
-    end
-})
-
---// FARMING TAB
-Tabs.Farming:AddParagraph({
-    Title = "Auto Farm Settings",
-    Content = "Configure movement and timing"
-})
-
-Tabs.Farming:AddSlider("TweenSpeed", {
-    Title = "Tween Speed",
-    Description = "Studs per second (10-200)",
-    Default = 50,
-    Min = 10,
-    Max = 200,
-    Rounding = 0,
-    Callback = function(Value)
-        settings.tweenSpeed = Value
-    end
-})
-
-Tabs.Farming:AddSlider("MaxTime", {
-    Title = "Max Farm Time",
-    Description = "Seconds per pot before switching",
-    Default = 10,
-    Min = 3,
-    Max = 60,
-    Rounding = 0,
-    Callback = function(Value)
-        settings.maxFarmTime = Value
-    end
-})
-
-local farmToggle = Tabs.Farming:AddToggle("AutoFarm", {
-    Title = "Auto Farm",
-    Description = "Automatically tween to nearest pot",
-    Default = false,
-    Callback = function(Value)
-        settings.autoFarm = Value
+--// Main Loop
+function startFarming()
+    SETTINGS.Connection = RunService.Heartbeat:Connect(function()
+        if not SETTINGS.IsRunning then return end
         
-        if Value then
-            task.spawn(function()
-                while settings.autoFarm do
-                    -- Проверяем активный tween
-                    if currentTween and currentTween.PlaybackState == Enum.PlaybackState.Playing then
-                        task.wait(0.1)
-                        continue
-                    end
-                    
-                    -- Проверяем время на текущем котле
-                    if currentTarget and (tick() - farmStartTime) < settings.maxFarmTime then
-                        -- Проверяем не убежали ли далеко
-                        local part = currentTarget:FindFirstChildWhichIsA("BasePart")
-                        if part then
-                            local dist = (rootPart.Position - part.Position).Magnitude
-                            if dist > 12 then
-                                tweenToTarget(currentTarget)
-                            end
-                        end
-                        task.wait(0.2)
-                        continue
-                    end
-                    
-                    -- Ищем новую цель
-                    local newTarget, distance = findNearestPot()
-                    
-                    -- Уведомление если нашли новый котел
-                    if newTarget and newTarget ~= lastTarget and settings.notifyFound then
-                        local sizeText = ""
-                        for _, name in ipairs(getTargetNames()) do
-                            if newTarget.Name == name then
-                                sizeText = name
-                                break
-                            end
-                        end
-                        
-                        Library:Notify({
-                            Title = "New Pot Found!",
-                            Content = sizeText .. " | Distance: " .. math.floor(distance) .. " studs",
-                            Duration = 3
-                        })
-                        
-                        lastTarget = newTarget
-                    end
-                    
-                    currentTarget = newTarget
-                    
-                    if currentTarget then
-                        farmStartTime = tick()
-                        tweenToTarget(currentTarget)
-                        
-                        -- Стоим рядом пока жив или не истекло время
-                        while currentTarget 
-                              and currentTarget.Parent 
-                              and settings.autoFarm 
-                              and (tick() - farmStartTime) < settings.maxFarmTime do
-                            
-                            local part = currentTarget:FindFirstChildWhichIsA("BasePart")
-                            if part then
-                                local dist = (rootPart.Position - part.Position).Magnitude
-                                if dist > 10 then
-                                    tweenToTarget(currentTarget)
-                                end
-                            end
-                            
-                            task.wait(0.2)
-                        end
-                    else
-                        if settings.notifyFound then
-                            Library:Notify({
-                                Title = "No Pots Found",
-                                Content = "Searching for " .. settings.selectedType .. " pots...",
-                                Duration = 2
-                            })
-                        end
-                        task.wait(1)
-                    end
-                end
-            end)
-        else
-            if currentTween then currentTween:Cancel() end
-            currentTarget = nil
+        if not SETTINGS.CurrentTween or SETTINGS.CurrentTween.PlaybackState ~= Enum.PlaybackState.Playing then
+            local target = findNearestTarget()
+            if target then
+                tweenToTarget(target)
+            else
+                task.wait(0.5)
+            end
         end
+    end)
+end
+
+function stopFarming()
+    if SETTINGS.CurrentTween then
+        SETTINGS.CurrentTween:Pause()
+        SETTINGS.CurrentTween = nil
     end
-})
-
-Tabs.Farming:AddToggle("NotifyFound", {
-    Title = "Notify On Found",
-    Description = "Show notification when new pot detected",
-    Default = true,
-    Callback = function(Value)
-        settings.notifyFound = Value
-    end
-})
-
---// COMBAT TAB
-Tabs.Combat:AddParagraph({
-    Title = "Auto Clicker",
-    Content = "Spam attack while farming"
-})
-
-Tabs.Combat:AddSlider("ClickSpeed", {
-    Title = "Click Speed (ms)",
-    Description = "Lower = faster attacks",
-    Default = 10,
-    Min = 1,
-    Max = 100,
-    Rounding = 0,
-    Callback = function(Value)
-        settings.clickDelay = Value / 1000
-    end
-})
-
-Tabs.Combat:AddToggle("AutoHit", {
-    Title = "Auto Clicker",
-    Description = "Spam tool activation and virtual clicks",
-    Default = false,
-    Callback = function(Value)
-        settings.autoHit = Value
-        
-        if Value then
-            task.spawn(function()
-                while settings.autoHit do
-                    -- Инструмент
-                    local tool = character:FindFirstChildOfClass("Tool")
-                    if tool then
-                        pcall(function() tool:Activate() end)
-                    end
-                    
-                    -- Виртуальный клик (обход защит)
-                    VirtualInputManager:SendMouseButtonEvent(0, 0, 0, true, game, 1)
-                    VirtualInputManager:SendMouseButtonEvent(0, 0, 0, false, game, 1)
-                    
-                    -- Proximity prompt если рядом с целью
-                    if currentTarget then
-                        local part = currentTarget:FindFirstChildWhichIsA("BasePart")
-                        if part then
-                            local dist = (rootPart.Position - part.Position).Magnitude
-                            if dist <= settings.hitDistance then
-                                local prompt = currentTarget:FindFirstChildWhichIsA("ProximityPrompt", true)
-                                if prompt and fireproximityprompt then
-                                    pcall(function() fireproximityprompt(prompt) end)
-                                end
-                            end
-                        end
-                    end
-                    
-                    task.wait(settings.clickDelay)
-                end
-            end)
-        end
-    end
-})
-
-Tabs.Combat:AddSlider("HitDistance", {
-    Title = "Hit Distance",
-    Description = "Range for proximity prompts",
-    Default = 15,
-    Min = 5,
-    Max = 50,
-    Rounding = 0,
-    Callback = function(Value)
-        settings.hitDistance = Value
-    end
-})
-
---// SETTINGS TAB
-Tabs.Settings:AddButton({
-    Title = "Emergency Stop",
-    Description = "Stop all farming and combat",
-    Callback = function()
-        settings.autoFarm = false
-        settings.autoHit = false
-        if currentTween then currentTween:Cancel() end
-        currentTarget = nil
-        farmToggle:SetValue(false)
-        
-        Library:Notify({
-            Title = "Emergency Stop",
-            Content = "All functions disabled!",
-            Duration = 3
-        })
-    end
-})
-
---// Character respawn
-player.CharacterAdded:Connect(function(char)
-    character = char
-    humanoid = char:WaitForChild("Humanoid")
-    rootPart = char:WaitForChild("HumanoidRootPart")
     
-    if settings.autoFarm then
-        task.wait(1)
-        Library:Notify({
-            Title = "Character Respawned",
-            Content = "Restarting auto farm...",
-            Duration = 3
-        })
-        farmToggle:SetValue(true)
+    if SETTINGS.Connection then
+        SETTINGS.Connection:Disconnect()
+        SETTINGS.Connection = nil
     end
+end
+
+--// Cleanup
+character.Humanoid.Died:Connect(function()
+    stopFarming()
+    SETTINGS.IsRunning = false
+    FarmButton:Set("▶ START FARMING")
 end)
 
---// Save Manager
-SaveManager:SetLibrary(Library)
-InterfaceManager:SetLibrary(Library)
-SaveManager:IgnoreThemeSettings()
-SaveManager:SetIgnoreIndexes({})
-InterfaceManager:SetFolder("PotFarmer")
-SaveManager:SetFolder("PotFarmer/settings")
+player.CharacterAdded:Connect(function(newChar)
+    character = newChar
+    humanoidRootPart = character:WaitForChild("HumanoidRootPart")
+    character.Humanoid.Died:Connect(function()
+        stopFarming()
+        SETTINGS.IsRunning = false
+        FarmButton:Set("▶ START FARMING")
+    end)
+end)
 
-SaveManager:BuildConfigSection(Tabs.Settings)
-InterfaceManager:BuildInterfaceSection(Tabs.Settings)
-
-Window:SelectTab(1)
-
-Library:Notify({
-    Title = "Pot Farmer Pro",
-    Content = "Script loaded successfully! | Tween movement enabled",
+Rayfield:Notify({
+    Title = "Loaded",
+    Content = "Pot Farmer ready! Select targets and click START.",
     Duration = 5
 })
-
-SaveManager:LoadAutoloadConfig()

@@ -12,126 +12,94 @@ local character = player.Character or player.CharacterAdded:Wait()
 local humanoidRootPart = character:WaitForChild("HumanoidRootPart")
 local humanoid = character:WaitForChild("Humanoid")
 
---// Config (ВСЕ ВЫКЛЮЧЕНО)
+--// Config
 local SETTINGS = {
-    TargetTypes = {
-        WaterPot = {
-            Names = {"WaterPot", "Water Pot", "waterpot", "water_pot"},
-            Enabled = false
-        },
-        GoldPot = {
-            Names = {"GoldPot", "Gold Pot", "goldpot", "gold_pot", "GoldenPot", "Golden Pot", "goldenpot", "GoldenGoldPot", "Golden Gold Pot", "goldengoldpot"},
-            Enabled = false
-        }
-    },
-    SizeFilters = {
-        Small = false,
-        Big = false,
-        Mega = false,
-        Omega = false
-    },
-    CurrentSpeed = 5,
+    -- Farm targets
+    FarmWater = false,
+    FarmGold = false,
+    FarmSizes = {Small = false, Big = false, Mega = false, Omega = false},
+    
+    -- Aura targets (отдельные!)
+    AuraWater = false,
+    AuraGold = false,
+    AuraSizes = {Small = false, Big = false, Mega = false, Omega = false},
+    
+    Speed = 5,
     IsFarming = false,
     IsAura = false,
-    BreakDistance = 8
+    BreakDistance = 8,
+    AuraDelay = 0.5 -- Задержка ауры
 }
 
 --// Create Window
 local Window = Rayfield:CreateWindow({
     Name = "🔥 Pot Farmer",
     LoadingTitle = "Pot Farmer",
-    LoadingSubtitle = "Fixed",
-    ConfigurationSaving = {
-        Enabled = false,
-        FolderName = "PotFarmer",
-        FileName = "Settings"
-    },
+    ConfigurationSaving = {Enabled = false},
     KeySystem = false
 })
 
---// Tabs
+--// TABS
 local FarmTab = Window:CreateTab("🎯 Farm", "target")
 local AuraTab = Window:CreateTab("⚡ Aura", "zap")
 
 --// FARM TAB
-FarmTab:CreateSection("Target Types")
+FarmTab:CreateSection("Farm Targets")
 
 FarmTab:CreateToggle({
     Name = "💧 Water Pot",
     CurrentValue = false,
-    Flag = "WaterPot",
-    Callback = function(Value)
-        SETTINGS.TargetTypes.WaterPot.Enabled = Value
-    end
+    Callback = function(V) SETTINGS.FarmWater = V end
 })
 
 FarmTab:CreateToggle({
     Name = "🏆 Gold Pot",
     CurrentValue = false,
-    Flag = "GoldPot",
-    Callback = function(Value)
-        SETTINGS.TargetTypes.GoldPot.Enabled = Value
-    end
+    Callback = function(V) SETTINGS.FarmGold = V end
 })
 
-FarmTab:CreateSection("Size Filter")
+FarmTab:CreateSection("Farm Sizes")
 
-FarmTab:CreateToggle({
-    Name = "Small",
-    CurrentValue = false,
-    Flag = "Small",
-    Callback = function(Value)
-        SETTINGS.SizeFilters.Small = Value
-    end
-})
+FarmTab:CreateToggle({Name = "Small", CurrentValue = false, Callback = function(V) SETTINGS.FarmSizes.Small = V end})
+FarmTab:CreateToggle({Name = "Big", CurrentValue = false, Callback = function(V) SETTINGS.FarmSizes.Big = V end})
+FarmTab:CreateToggle({Name = "Mega", CurrentValue = false, Callback = function(V) SETTINGS.FarmSizes.Mega = V end})
+FarmTab:CreateToggle({Name = "Omega", CurrentValue = false, Callback = function(V) SETTINGS.FarmSizes.Omega = V end})
 
-FarmTab:CreateToggle({
-    Name = "Big",
-    CurrentValue = false,
-    Flag = "Big",
-    Callback = function(Value)
-        SETTINGS.SizeFilters.Big = Value
-    end
-})
-
-FarmTab:CreateToggle({
-    Name = "Mega",
-    CurrentValue = false,
-    Flag = "Mega",
-    Callback = function(Value)
-        SETTINGS.SizeFilters.Mega = Value
-    end
-})
-
-FarmTab:CreateToggle({
-    Name = "Omega",
-    CurrentValue = false,
-    Flag = "Omega",
-    Callback = function(Value)
-        SETTINGS.SizeFilters.Omega = Value
-    end
-})
-
-FarmTab:CreateSection("Speed")
+FarmTab:CreateSection("Speed (0-22)")
 
 FarmTab:CreateSlider({
-    Name = "Speed (0-22)",
+    Name = "Speed",
     Range = {0, 22},
     Increment = 1,
-    Suffix = "",
     CurrentValue = 5,
-    Flag = "Speed",
-    Callback = function(Value)
-        SETTINGS.CurrentSpeed = Value
-    end
+    Callback = function(V) SETTINGS.Speed = V end
 })
 
 local FarmStatus = FarmTab:CreateLabel("Status: IDLE")
 
 --// AURA TAB
-AuraTab:CreateSection("Auto Break Aura")
+AuraTab:CreateSection("⚡ Aura Targets (выбор что ломать)")
 
-local AuraStatus = AuraTab:CreateLabel("Aura: OFF")
+AuraTab:CreateToggle({
+    Name = "💧 Water Pot",
+    CurrentValue = false,
+    Callback = function(V) SETTINGS.AuraWater = V end
+})
+
+AuraTab:CreateToggle({
+    Name = "🏆 Gold Pot",
+    CurrentValue = false,
+    Callback = function(V) SETTINGS.AuraGold = V end
+})
+
+AuraTab:CreateSection("Aura Sizes")
+
+AuraTab:CreateToggle({Name = "Small", CurrentValue = false, Callback = function(V) SETTINGS.AuraSizes.Small = V end})
+AuraTab:CreateToggle({Name = "Big", CurrentValue = false, Callback = function(V) SETTINGS.AuraSizes.Big = V end})
+AuraTab:CreateToggle({Name = "Mega", CurrentValue = false, Callback = function(V) SETTINGS.AuraSizes.Mega = V end})
+AuraTab:CreateToggle({Name = "Omega", CurrentValue = false, Callback = function(V) SETTINGS.AuraSizes.Omega = V end})
+
+AuraTab:CreateSection("Settings")
 
 AuraTab:CreateSlider({
     Name = "Break Distance",
@@ -139,302 +107,233 @@ AuraTab:CreateSlider({
     Increment = 1,
     Suffix = " studs",
     CurrentValue = 8,
-    Flag = "BreakDist",
-    Callback = function(Value)
-        SETTINGS.BreakDistance = Value
-    end
+    Callback = function(V) SETTINGS.BreakDistance = V end
 })
 
---// CORE FUNCTIONS
+local AuraStatus = AuraTab:CreateLabel("Aura: OFF")
 
-local function getDeployablesFolder()
+--// FUNCTIONS
+
+local function getDeployables()
     local ws = game:GetService("Workspace")
-    
-    if ws:FindFirstChild("Deployables") then
-        return ws.Deployables
-    elseif ws:FindFirstChild("deployables") then
-        return ws.deployables
-    end
-    
+    if ws:FindFirstChild("Deployables") then return ws.Deployables end
+    if ws:FindFirstChild("deployables") then return ws.deployables end
     for _, obj in ipairs(ws:GetDescendants()) do
-        if obj:IsA("Folder") and obj.Name:lower():find("deploy") then
-            return obj
-        end
+        if obj:IsA("Folder") and obj.Name:lower():find("deploy") then return obj end
     end
-    
     return nil
 end
 
-local function isValidTarget(obj)
+local function matchesFilter(obj, waterEnabled, goldEnabled, sizes)
     if not obj or not obj:IsA("BasePart") then return false end
     
-    local objName = obj.Name:lower()
-    local parentName = obj.Parent and obj.Parent.Name:lower() or ""
-    local fullName = objName .. " " .. parentName
+    local name = (obj.Name .. " " .. (obj.Parent and obj.Parent.Name or "")):lower()
     
     local anySize = false
-    for _, active in pairs(SETTINGS.SizeFilters) do
-        if active then anySize = true break end
-    end
+    for _, active in pairs(sizes) do if active then anySize = true break end end
     if not anySize then return false end
     
-    if SETTINGS.TargetTypes.WaterPot.Enabled then
-        for _, name in ipairs(SETTINGS.TargetTypes.WaterPot.Names) do
-            if fullName:find(name:lower()) then
-                for size, active in pairs(SETTINGS.SizeFilters) do
-                    if active and fullName:find(size:lower()) then
-                        return true
-                    end
-                end
-            end
-        end
-    end
+    local isWater = name:find("water")
+    local isGold = name:find("gold") or name:find("golden")
     
-    if SETTINGS.TargetTypes.GoldPot.Enabled then
-        for _, name in ipairs(SETTINGS.TargetTypes.GoldPot.Names) do
-            if fullName:find(name:lower()) then
-                for size, active in pairs(SETTINGS.SizeFilters) do
-                    if active and fullName:find(size:lower()) then
-                        return true
-                    end
-                end
-            end
-        end
+    if waterEnabled and isGold then return false end -- Gold содержит "old", исключаем если ищем Water
+    if goldEnabled and isWater then return false end
+    
+    local typeMatch = (waterEnabled and isWater) or (goldEnabled and isGold)
+    if not typeMatch then return false end
+    
+    for size, active in pairs(sizes) do
+        if active and name:find(size:lower()) then return true end
     end
     
     return false
 end
 
-local function getAllTargets()
-    local deployables = getDeployablesFolder()
+local function getTargets(water, gold, sizes)
+    local deployables = getDeployables()
     if not deployables then return {} end
     
     local targets = {}
     for _, obj in ipairs(deployables:GetDescendants()) do
-        if isValidTarget(obj) then
+        if matchesFilter(obj, water, gold, sizes) then
             table.insert(targets, obj)
         end
     end
-    
     return targets
 end
 
-local function findNearestTarget()
-    local targets = getAllTargets()
-    if #targets == 0 then return nil end
-    
-    local nearest = nil
-    local nearestDist = math.huge
-    local hrpPos = humanoidRootPart.Position
-    
-    for _, obj in ipairs(targets) do
-        if obj and obj.Parent then
-            local dist = (hrpPos - obj.Position).Magnitude
-            if dist < nearestDist and dist > 3 then
-                nearestDist = dist
-                nearest = obj
-            end
-        end
-    end
-    
-    return nearest, nearestDist
-end
-
---// BREAK FUNCTION (РАБОЧАЯ!)
 local function breakPot(pot)
     if not pot or not pot.Parent then return end
     
-    -- Сохраняем позицию
-    local oldCFrame = humanoidRootPart.CFrame
+    -- Телепорт на пот
+    humanoidRootPart.CFrame = CFrame.new(pot.Position + Vector3.new(0, 3, 0))
     
-    -- ТЕЛЕПОРТ НА ПОТ (для ауры - это нормально)
-    humanoidRootPart.CFrame = CFrame.new(pot.Position + Vector3.new(0, 2, 0))
-    
-    -- Fire touch
+    -- Касание
     pcall(function()
         firetouchinterest(pot, humanoidRootPart, 0)
-        task.wait(0.05)
+        task.wait(0.03)
         firetouchinterest(pot, humanoidRootPart, 1)
     end)
     
-    -- Click detector
+    -- Клик/промпт
     pcall(function()
         local click = pot:FindFirstChildOfClass("ClickDetector")
         if click then fireclickdetector(click) end
     end)
-    
-    -- Proximity prompt
     pcall(function()
         local prompt = pot:FindFirstChildOfClass("ProximityPrompt")
         if prompt then fireproximityprompt(prompt) end
     end)
-    
-    -- Возврат (опционально, для ауры можно не возвращать)
-    -- task.wait(0.05)
-    -- humanoidRootPart.CFrame = oldCFrame
 end
 
---// TWEEN (для фарма)
+--// TWEEN (медленнее)
 local currentTween = nil
 
-local function flyToTarget(target)
+local function flyTo(target)
     if not target or not target.Parent then return end
     
-    local distance = (humanoidRootPart.Position - target.Position).Magnitude
-    
-    local tweenTime = 0.01
-    if SETTINGS.CurrentSpeed > 0 then
-        tweenTime = distance / (SETTINGS.CurrentSpeed * 10)
+    local dist = (humanoidRootPart.Position - target.Position).Magnitude
+    local time = 0.01
+    if SETTINGS.Speed > 0 then
+        time = dist / (SETTINGS.Speed * 4) -- Медленнее (было *10)
     end
     
-    local tweenInfo = TweenInfo.new(
-        tweenTime,
-        Enum.EasingStyle.Linear,
-        Enum.EasingDirection.Out
-    )
+    local info = TweenInfo.new(time, Enum.EasingStyle.Linear)
+    local cf = CFrame.new(target.Position + Vector3.new(0, 4, 0))
     
-    local targetCFrame = CFrame.new(target.Position + Vector3.new(0, 5, 0))
-    
-    if currentTween then
-        currentTween:Cancel()
-    end
-    
-    currentTween = TweenService:Create(humanoidRootPart, tweenInfo, {
-        CFrame = targetCFrame
-    })
-    
+    if currentTween then currentTween:Cancel() end
+    currentTween = TweenService:Create(humanoidRootPart, info, {CFrame = cf})
     currentTween:Play()
     currentTween.Completed:Wait()
     
-    -- Ломание после прилета
     breakPot(target)
 end
 
 --// LOOPS
-local farmRunning = false
-local auraRunning = false
+local farmRun = false
+local auraRun = false
 
 local function startFarm()
-    if farmRunning then return end
-    farmRunning = true
+    if farmRun then return end
+    farmRun = true
     SETTINGS.IsFarming = true
-    FarmStatus:Set("Status: RUNNING")
+    FarmStatus:Set("Running...")
     
     task.spawn(function()
-        while farmRunning do
-            local target, dist = findNearestTarget()
+        while farmRun do
+            local targets = getTargets(SETTINGS.FarmWater, SETTINGS.FarmGold, SETTINGS.FarmSizes)
+            local nearest = nil
+            local nearDist = math.huge
+            local pos = humanoidRootPart.Position
             
-            if target then
-                FarmStatus:Set("Flying to: " .. target.Name:sub(1, 15))
-                flyToTarget(target)
-            else
-                FarmStatus:Set("No targets found")
+            for _, t in ipairs(targets) do
+                if t and t.Parent then
+                    local d = (pos - t.Position).Magnitude
+                    if d < nearDist and d > 2 then
+                        nearDist = d
+                        nearest = t
+                    end
+                end
             end
             
-            task.wait(0.3)
+            if nearest then
+                FarmStatus:Set("To: " .. nearest.Name:sub(1, 12))
+                flyTo(nearest)
+            else
+                FarmStatus:Set("No targets")
+            end
+            
+            task.wait(0.2)
         end
-        
-        FarmStatus:Set("Status: STOPPED")
+        FarmStatus:Set("Stopped")
         SETTINGS.IsFarming = false
     end)
 end
 
 local function stopFarm()
-    farmRunning = false
-    if currentTween then
-        currentTween:Cancel()
-    end
+    farmRun = false
+    if currentTween then currentTween:Cancel() end
 end
 
+local lastAuraTargets = {}
+
 local function startAura()
-    if auraRunning then return end
-    auraRunning = true
+    if auraRun then return end
+    auraRun = true
     SETTINGS.IsAura = true
     
     task.spawn(function()
-        while auraRunning do
-            local targets = getAllTargets()
-            local hrpPos = humanoidRootPart.Position
-            local nearby = {}
+        while auraRun do
+            local targets = getTargets(SETTINGS.AuraWater, SETTINGS.AuraGold, SETTINGS.AuraSizes)
+            local pos = humanoidRootPart.Position
+            local toBreak = {}
             
-            -- Находим ближайшие
+            -- Собираем ближайшие
             for _, pot in ipairs(targets) do
                 if pot and pot.Parent then
-                    local dist = (hrpPos - pot.Position).Magnitude
-                    if dist <= SETTINGS.BreakDistance then
-                        table.insert(nearby, pot)
+                    local d = (pos - pot.Position).Magnitude
+                    if d <= SETTINGS.BreakDistance then
+                        table.insert(toBreak, pot)
                     end
                 end
             end
             
-            -- БЬЕМ КАЖДЫЙ!
-            if #nearby > 0 then
-                AuraStatus:Set("Breaking " .. #nearby .. " pots...")
-                for _, pot in ipairs(nearby) do
+            if #toBreak > 0 then
+                AuraStatus:Set("Breaking " .. #toBreak .. "...")
+                
+                -- Бьем по очереди без лагов
+                for i, pot in ipairs(toBreak) do
+                    if not auraRun then break end
                     if pot and pot.Parent then
                         breakPot(pot)
-                        task.wait(0.1) -- Маленькая задержка между ударами
+                        AuraStatus:Set("Broke " .. i .. "/" .. #toBreak)
+                        task.wait(0.15) -- Задержка между ударами
                     end
                 end
             else
                 AuraStatus:Set("No pots nearby")
             end
             
-            task.wait(0.5) -- Проверка раз в 0.5 сек
+            task.wait(SETTINGS.AuraDelay)
         end
-        
         AuraStatus:Set("Aura: OFF")
         SETTINGS.IsAura = false
     end)
 end
 
 local function stopAura()
-    auraRunning = false
+    auraRun = false
 end
 
 --// BUTTONS
 FarmTab:CreateButton({
     Name = "Toggle Farm",
     Callback = function()
-        if SETTINGS.IsFarming then
-            stopFarm()
-        else
-            startFarm()
-        end
+        if SETTINGS.IsFarming then stopFarm() else startFarm() end
     end
 })
 
 AuraTab:CreateButton({
     Name = "Toggle Aura",
     Callback = function()
-        if SETTINGS.IsAura then
-            stopAura()
-        else
-            startAura()
-        end
+        if SETTINGS.IsAura then stopAura() else startAura() end
     end
 })
 
---// DEATH HANDLER
+--// DEATH
 humanoid.Died:Connect(function()
     stopFarm()
     stopAura()
 end)
 
-player.CharacterAdded:Connect(function(newChar)
-    character = newChar
-    humanoidRootPart = character:WaitForChild("HumanoidRootPart")
-    humanoid = character:WaitForChild("Humanoid")
-    
+player.CharacterAdded:Connect(function(c)
+    character = c
+    humanoidRootPart = c:WaitForChild("HumanoidRootPart")
+    humanoid = c:WaitForChild("Humanoid")
     humanoid.Died:Connect(function()
         stopFarm()
         stopAura()
     end)
 end)
 
---// Notify
-Rayfield:Notify({
-    Title = "Loaded",
-    Content = "Aura now PHYSICALLY touches pots!",
-    Duration = 3
-})
+Rayfield:Notify({Title = "Loaded", Content = "Farm and Aura have separate settings!", Duration = 3})

@@ -12,195 +12,453 @@ local character = player.Character or player.CharacterAdded:Wait()
 local humanoidRootPart = character:WaitForChild("HumanoidRootPart")
 local humanoid = character:WaitForChild("Humanoid")
 
---// Config
+--// Config (ВСЕ ВЫКЛЮЧЕНО)
 local SETTINGS = {
     TargetTypes = {
-        WaterPot = {Names = {"WaterPot", "Water Pot", "waterpot", "water_pot"}, Enabled = true},
-        GoldPot = {Names = {"GoldPot", "Gold Pot", "goldpot", "gold_pot", "GoldenPot", "Golden Pot"}, Enabled = true}
+        WaterPot = {
+            Names = {"WaterPot", "Water Pot", "waterpot", "water_pot"},
+            Enabled = false
+        },
+        GoldPot = {
+            Names = {"GoldPot", "Gold Pot", "goldpot", "gold_pot", "GoldenPot", "Golden Pot", "goldenpot", "GoldenGoldPot", "Golden Gold Pot", "goldengoldpot"},
+            Enabled = false
+        }
     },
-    SizeFilters = {Small = true, Big = true, Mega = true, Omega = true},
-    CurrentSpeed = 5, IsFarming = false, IsAura = false, CurrentTween = nil, FarmConnection = nil, AuraConnection = nil, BreakDistance = 8
+    SizeFilters = {
+        Small = false,
+        Big = false,
+        Mega = false,
+        Omega = false
+    },
+    CurrentSpeed = 5,
+    IsFarming = false,
+    IsAura = false,
+    BreakDistance = 8,
+    CacheTime = 0.5 -- Кэширование целей
 }
 
---// Оголошення UI змінних
-local StatusLabel, ToggleFarmBtn, AuraStatusLabel, ToggleAuraBtn
+--// Cache
+local targetCache = {}
+local lastCacheUpdate = 0
+
+--// Create Window
+local Window = Rayfield:CreateWindow({
+    Name = "🔥 Pot Farmer",
+    LoadingTitle = "Pot Farmer",
+    LoadingSubtitle = "Fixed",
+    ConfigurationSaving = {
+        Enabled = false,
+        FolderName = "PotFarmer",
+        FileName = "Settings"
+    },
+    KeySystem = false
+})
+
+--// Tabs
+local FarmTab = Window:CreateTab("🎯 Farm", "target")
+local AuraTab = Window:CreateTab("⚡ Aura", "zap")
+
+--// FARM TAB
+FarmTab:CreateSection("Target Types")
+
+FarmTab:CreateToggle({
+    Name = "💧 Water Pot",
+    CurrentValue = false,
+    Flag = "WaterPot",
+    Callback = function(Value)
+        SETTINGS.TargetTypes.WaterPot.Enabled = Value
+        clearCache()
+    end
+})
+
+FarmTab:CreateToggle({
+    Name = "🏆 Gold Pot",
+    CurrentValue = false,
+    Flag = "GoldPot",
+    Callback = function(Value)
+        SETTINGS.TargetTypes.GoldPot.Enabled = Value
+        clearCache()
+    end
+})
+
+FarmTab:CreateSection("Size Filter")
+
+FarmTab:CreateToggle({
+    Name = "Small",
+    CurrentValue = false,
+    Flag = "Small",
+    Callback = function(Value)
+        SETTINGS.SizeFilters.Small = Value
+        clearCache()
+    end
+})
+
+FarmTab:CreateToggle({
+    Name = "Big",
+    CurrentValue = false,
+    Flag = "Big",
+    Callback = function(Value)
+        SETTINGS.SizeFilters.Big = Value
+        clearCache()
+    end
+})
+
+FarmTab:CreateToggle({
+    Name = "Mega",
+    CurrentValue = false,
+    Flag = "Mega",
+    Callback = function(Value)
+        SETTINGS.SizeFilters.Mega = Value
+        clearCache()
+    end
+})
+
+FarmTab:CreateToggle({
+    Name = "Omega",
+    CurrentValue = false,
+    Flag = "Omega",
+    Callback = function(Value)
+        SETTINGS.SizeFilters.Omega = Value
+        clearCache()
+    end
+})
+
+FarmTab:CreateSection("Speed")
+
+FarmTab:CreateSlider({
+    Name = "Speed (0-22)",
+    Range = {0, 22},
+    Increment = 1,
+    Suffix = "",
+    CurrentValue = 5,
+    Flag = "Speed",
+    Callback = function(Value)
+        SETTINGS.CurrentSpeed = Value
+    end
+})
+
+local FarmStatus = FarmTab:CreateLabel("Status: IDLE")
+
+--// AURA TAB
+AuraTab:CreateSection("Auto Break Aura")
+
+local AuraStatus = AuraTab:CreateLabel("Aura: OFF")
+
+AuraTab:CreateSlider({
+    Name = "Break Distance",
+    Range = {3, 20},
+    Increment = 1,
+    Suffix = " studs",
+    CurrentValue = 8,
+    Flag = "BreakDist",
+    Callback = function(Value)
+        SETTINGS.BreakDistance = Value
+    end
+})
 
 --// CORE FUNCTIONS
+
 local function getDeployablesFolder()
     local ws = game:GetService("Workspace")
-    if ws:FindFirstChild("Deployables") then return ws.Deployables end
-    if ws:FindFirstChild("deployables") then return ws.deployables end
-    for _, obj in ipairs(ws:GetDescendants()) do
-        if (obj:IsA("Folder") or obj:IsA("Model")) and obj.Name:lower():find("deploy") then return obj end
+    
+    if ws:FindFirstChild("Deployables") then
+        return ws.Deployables
+    elseif ws:FindFirstChild("deployables") then
+        return ws.deployables
     end
+    
+    for _, obj in ipairs(ws:GetDescendants()) do
+        if obj:IsA("Folder") and obj.Name:lower():find("deploy") then
+            return obj
+        end
+    end
+    
     return nil
+end
+
+local function clearCache()
+    targetCache = {}
+    lastCacheUpdate = 0
 end
 
 local function isValidTarget(obj)
     if not obj or not obj:IsA("BasePart") then return false end
-    local fullName = (obj.Name .. " " .. (obj.Parent and obj.Parent.Name or "")):lower()
-    for _, typeData in pairs(SETTINGS.TargetTypes) do
-        if typeData.Enabled then
-            for _, name in ipairs(typeData.Names) do
-                if fullName:find(name:lower()) then
-                    for size, active in pairs(SETTINGS.SizeFilters) do
-                        if active and fullName:find(size:lower()) then return true end
+    
+    local objName = obj.Name:lower()
+    local parentName = obj.Parent and obj.Parent.Name:lower() or ""
+    local fullName = objName .. " " .. parentName
+    
+    local anySize = false
+    for _, active in pairs(SETTINGS.SizeFilters) do
+        if active then anySize = true break end
+    end
+    if not anySize then return false end
+    
+    if SETTINGS.TargetTypes.WaterPot.Enabled then
+        for _, name in ipairs(SETTINGS.TargetTypes.WaterPot.Names) do
+            if fullName:find(name:lower()) then
+                for size, active in pairs(SETTINGS.SizeFilters) do
+                    if active and fullName:find(size:lower()) then
+                        return true
                     end
                 end
             end
         end
     end
+    
+    if SETTINGS.TargetTypes.GoldPot.Enabled then
+        for _, name in ipairs(SETTINGS.TargetTypes.GoldPot.Names) do
+            if fullName:find(name:lower()) then
+                for size, active in pairs(SETTINGS.SizeFilters) do
+                    if active and fullName:find(size:lower()) then
+                        return true
+                    end
+                end
+            end
+        end
+    end
+    
     return false
 end
 
-local function findNearestTarget()
+local function updateTargetCache()
+    local now = tick()
+    if now - lastCacheUpdate < SETTINGS.CacheTime then
+        return targetCache
+    end
+    
     local deployables = getDeployablesFolder()
-    if not deployables then return nil end
-    local nearest, nearestDist = nil, math.huge
+    if not deployables then
+        targetCache = {}
+        return targetCache
+    end
+    
+    targetCache = {}
     for _, obj in ipairs(deployables:GetDescendants()) do
         if isValidTarget(obj) then
-            local dist = (humanoidRootPart.Position - obj.Position).Magnitude
-            if dist < nearestDist and dist > 3 then nearestDist = dist; nearest = obj end
+            table.insert(targetCache, obj)
         end
     end
+    
+    lastCacheUpdate = now
+    return targetCache
+end
+
+local function findNearestTarget()
+    local cache = updateTargetCache()
+    if #cache == 0 then return nil end
+    
+    local nearest = nil
+    local nearestDist = math.huge
+    local hrpPos = humanoidRootPart.Position
+    
+    for _, obj in ipairs(cache) do
+        if obj and obj.Parent then
+            local dist = (hrpPos - obj.Position).Magnitude
+            if dist < nearestDist and dist > 3 then
+                nearestDist = dist
+                nearest = obj
+            end
+        end
+    end
+    
     return nearest, nearestDist
+end
+
+local function findTargetsInRadius(radius)
+    local cache = updateTargetCache()
+    local result = {}
+    local hrpPos = humanoidRootPart.Position
+    
+    for _, obj in ipairs(cache) do
+        if obj and obj.Parent then
+            local dist = (hrpPos - obj.Position).Magnitude
+            if dist <= radius then
+                table.insert(result, obj)
+            end
+        end
+    end
+    
+    return result
 end
 
 local function breakPot(pot)
     if not pot or not pot.Parent then return end
-    pcall(function() firetouchinterest(pot, humanoidRootPart, 0); task.wait(0.05); firetouchinterest(pot, humanoidRootPart, 1) end)
-    pcall(function() local cd = pot:FindFirstChildOfClass("ClickDetector"); if cd then fireclickdetector(cd) end end)
-end
-
-local function tweenToTarget(target)
-    if not target or not target.Parent then return end
-    local dist = (humanoidRootPart.Position - target.Position).Magnitude
-    local time = SETTINGS.CurrentSpeed == 0 and 0.01 or (dist / (SETTINGS.CurrentSpeed * 8))
-    local tPos = target.Position + Vector3.new(0, 4, 0)
     
-    SETTINGS.CurrentTween = TweenService:Create(humanoidRootPart, TweenInfo.new(time, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {CFrame = CFrame.new(tPos, tPos + (target.Position - humanoidRootPart.Position).Unit)})
-    SETTINGS.CurrentTween:Play()
-    
-    local conn
-    conn = RunService.Heartbeat:Connect(function()
-        if not SETTINGS.IsFarming or not target.Parent then conn:Disconnect() return end
-        if (humanoidRootPart.Position - target.Position).Magnitude < SETTINGS.BreakDistance then breakPot(target); conn:Disconnect() end
+    pcall(function()
+        firetouchinterest(pot, humanoidRootPart, 0)
+        task.wait()
+        firetouchinterest(pot, humanoidRootPart, 1)
     end)
     
-    SETTINGS.CurrentTween.Completed:Wait()
-    if conn then conn:Disconnect() end
+    pcall(function()
+        local click = pot:FindFirstChildOfClass("ClickDetector")
+        if click then fireclickdetector(click) end
+    end)
+    
+    pcall(function()
+        local prompt = pot:FindFirstChildOfClass("ProximityPrompt")
+        if prompt then fireproximityprompt(prompt) end
+    end)
+end
+
+--// TWEEN (НЕ ТЕЛЕПОРТ!)
+local currentTween = nil
+
+local function flyToTarget(target)
+    if not target or not target.Parent then return end
+    
+    local distance = (humanoidRootPart.Position - target.Position).Magnitude
+    
+    local tweenTime = 0.01
+    if SETTINGS.CurrentSpeed > 0 then
+        tweenTime = distance / (SETTINGS.CurrentSpeed * 10)
+    end
+    
+    local tweenInfo = TweenInfo.new(
+        tweenTime,
+        Enum.EasingStyle.Linear,
+        Enum.EasingDirection.Out
+    )
+    
+    local targetCFrame = CFrame.new(target.Position + Vector3.new(0, 5, 0))
+    
+    if currentTween then
+        currentTween:Cancel()
+    end
+    
+    currentTween = TweenService:Create(humanoidRootPart, tweenInfo, {
+        CFrame = targetCFrame
+    })
+    
+    currentTween:Play()
+    
+    -- Ломание при приближении
+    local startTime = tick()
+    while currentTween and (currentTween.PlaybackState == Enum.PlaybackState.Playing) do
+        if tick() - startTime > tweenTime + 1 then break end
+        
+        if target and target.Parent then
+            local dist = (humanoidRootPart.Position - target.Position).Magnitude
+            if dist < SETTINGS.BreakDistance then
+                breakPot(target)
+            end
+        end
+        
+        task.wait(0.1)
+    end
+    
     breakPot(target)
 end
 
 --// LOOPS
-local function startFarming()
-    SETTINGS.FarmConnection = task.spawn(function()
+local farmLoop = nil
+local auraLoop = nil
+
+local function startFarm()
+    if farmLoop then return end
+    
+    SETTINGS.IsFarming = true
+    FarmStatus:Set("Status: RUNNING")
+    
+    farmLoop = task.spawn(function()
         while SETTINGS.IsFarming do
-            if not SETTINGS.CurrentTween or SETTINGS.CurrentTween.PlaybackState ~= Enum.PlaybackState.Playing then
-                local target, dist = findNearestTarget()
-                if target then 
-                    StatusLabel:Set("Status: Flying to " .. target.Name)
-                    tweenToTarget(target) 
-                else 
-                    StatusLabel:Set("Status: No targets found")
-                    task.wait(0.5) 
-                end
+            local target, dist = findNearestTarget()
+            
+            if target then
+                FarmStatus:Set("Flying to: " .. target.Name:sub(1, 15))
+                flyToTarget(target)
+            else
+                FarmStatus:Set("No targets found")
+                task.wait(0.5)
             end
-            task.wait(0.1)
+            
+            task.wait(0.2)
         end
     end)
 end
 
-local function stopFarming()
+local function stopFarm()
     SETTINGS.IsFarming = false
-    if SETTINGS.CurrentTween then SETTINGS.CurrentTween:Cancel(); SETTINGS.CurrentTween = nil end
+    FarmStatus:Set("Status: STOPPED")
+    if currentTween then
+        currentTween:Cancel()
+        currentTween = nil
+    end
+    farmLoop = nil
 end
 
 local function startAura()
-    SETTINGS.AuraConnection = RunService.Heartbeat:Connect(function()
-        if not SETTINGS.IsAura then return end
-        local deployables = getDeployablesFolder()
-        if not deployables then return end
-        
-        local count = 0
-        for _, obj in ipairs(deployables:GetDescendants()) do
-            if isValidTarget(obj) and (humanoidRootPart.Position - obj.Position).Magnitude <= SETTINGS.BreakDistance then
-                breakPot(obj); count = count + 1
+    if auraLoop then return end
+    
+    SETTINGS.IsAura = true
+    
+    auraLoop = task.spawn(function()
+        while SETTINGS.IsAura do
+            local targets = findTargetsInRadius(SETTINGS.BreakDistance)
+            
+            AuraStatus:Set("Breaking " .. #targets .. " pots")
+            
+            for _, target in ipairs(targets) do
+                if target and target.Parent then
+                    breakPot(target)
+                end
             end
+            
+            task.wait(0.2) -- Задержка чтобы не лагало
         end
-        AuraStatusLabel:Set(count > 0 and ("Aura: ON 🔥 (" .. count .. " pots)") or "Aura: ON (searching...)")
     end)
 end
 
 local function stopAura()
     SETTINGS.IsAura = false
-    if SETTINGS.AuraConnection then SETTINGS.AuraConnection:Disconnect(); SETTINGS.AuraConnection = nil end
+    AuraStatus:Set("Aura: OFF")
+    auraLoop = nil
 end
 
---// Create Window
-local Window = Rayfield:CreateWindow({Name = "🔥 Pot Farmer Pro", LoadingTitle = "Pot Farmer Pro", ConfigurationSaving = {Enabled = false}, KeySystem = false})
-
---// FARM TAB
-local FarmTab = Window:CreateTab("🎯 Farm", "target")
-FarmTab:CreateToggle({Name = "💧 Water Pot", CurrentValue = true, Flag = "WP", Callback = function(V) SETTINGS.TargetTypes.WaterPot.Enabled = V end})
-FarmTab:CreateToggle({Name = "🏆 Gold Pot", CurrentValue = true, Flag = "GP", Callback = function(V) SETTINGS.TargetTypes.GoldPot.Enabled = V end})
-
-FarmTab:CreateSection("Speed & Control")
-FarmTab:CreateSlider({Name = "Tween Speed", Range = {0, 22}, Increment = 1, CurrentValue = 5, Flag = "Spd", Callback = function(V) SETTINGS.CurrentSpeed = V end})
-
-StatusLabel = FarmTab:CreateLabel("Status: IDLE")
-ToggleFarmBtn = FarmTab:CreateButton({
-    Name = "▶ START FARMING",
+--// BUTTONS (Простые, без пересоздания)
+FarmTab:CreateButton({
+    Name = "Toggle Farm",
     Callback = function()
-        SETTINGS.IsFarming = not SETTINGS.IsFarming
         if SETTINGS.IsFarming then
-            ToggleFarmBtn:Set("⏹ STOP FARMING")
-            startFarming()
+            stopFarm()
         else
-            ToggleFarmBtn:Set("▶ START FARMING")
-            StatusLabel:Set("Status: IDLE")
-            stopFarming()
+            startFarm()
         end
     end
 })
 
---// AURA TAB
-local AuraTab = Window:CreateTab("⚡ Aura", "zap")
-AuraStatusLabel = AuraTab:CreateLabel("Aura: OFF")
-
-ToggleAuraBtn = AuraTab:CreateButton({
-    Name = "▶ START AURA",
+AuraTab:CreateButton({
+    Name = "Toggle Aura",
     Callback = function()
-        SETTINGS.IsAura = not SETTINGS.IsAura
         if SETTINGS.IsAura then
-            ToggleAuraBtn:Set("⏹ STOP AURA")
-            startAura()
-        else
-            ToggleAuraBtn:Set("▶ START AURA")
-            AuraStatusLabel:Set("Aura: OFF")
             stopAura()
+        else
+            startAura()
         end
     end
 })
 
-AuraTab:CreateSlider({Name = "Break Distance", Range = {3, 20}, Increment = 1, CurrentValue = 8, Flag = "BDist", Callback = function(V) SETTINGS.BreakDistance = V end})
-
---// EVENTS
-local function resetState()
-    stopFarming()
+--// DEATH HANDLER
+humanoid.Died:Connect(function()
+    stopFarm()
     stopAura()
-    ToggleFarmBtn:Set("▶ START FARMING")
-    ToggleAuraBtn:Set("▶ START AURA")
-    StatusLabel:Set("Status: DEAD")
-    AuraStatusLabel:Set("Aura: OFF")
-end
+end)
 
-humanoid.Died:Connect(resetState)
 player.CharacterAdded:Connect(function(newChar)
     character = newChar
     humanoidRootPart = character:WaitForChild("HumanoidRootPart")
     humanoid = character:WaitForChild("Humanoid")
-    humanoid.Died:Connect(resetState)
+    
+    humanoid.Died:Connect(function()
+        stopFarm()
+        stopAura()
+    end)
 end)
 
-Rayfield:Notify({Title = "✅ Loaded!", Content = "Pot Farmer Pro ready.", Duration = 3})
+--// Notify
+Rayfield:Notify({
+    Title = "Loaded",
+    Content = "All OFF by default. Enable types and sizes first!",
+    Duration = 3
+})
